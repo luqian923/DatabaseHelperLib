@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DatabaseHelper/LDatabaseHelper.csproj" Id="95b5c398-fa06-489c-bbc9-fc8aafd35c13" />
+  <Project Path="LDatabaseAnalyser/LDatabaseAnalyser.csproj" Id="03c596dd-fe8e-4bd1-bd84-21fb4bf96fc8" />
+  <Project Path="TestProgram/TestProgram.csproj" />
+</Solution>
