@@ -127,6 +127,20 @@ public class LDbManager : IDisposable
         return dynPack;
     }
 
+    public LDbPlayerPack? GetPack(uint uid, bool critical)
+    {
+        if (critical)
+        {
+            return CriticalInstances.GetValueOrDefault(uid);
+        }
+
+        // dynamic pack
+        var dynPack = DynamicInstances.GetValueOrDefault(uid);
+        dynPack?.IncRef();
+
+        return dynPack;
+    }
+
     private LDbBaseTable? LoadSingleTable(uint uid, Type type)
     {
         var result = _sqlSugarScope.QueryableByObject(type)
@@ -158,9 +172,12 @@ public class LDbManager : IDisposable
         return dict.Values.SelectMany(p => p.GetSnapshot()).OfType<T>().ToList();
     }
 
-    public void SaveInstance<T>(T instance) where T : class, new()
+    public void SaveInstance<T>(T instance) where T : LDbBaseTable, new()
     {
         _sqlSugarScope.Insertable(instance).ExecuteCommand();
+
+        // add to pack
+        GetOrCreatePack(instance.Id, _criticalTypes.Contains(instance.GetType())).Add(instance);
     }
 
     public void SaveDatabase() // per 5 min
@@ -218,7 +235,12 @@ public class LDbManager : IDisposable
         _sqlSugarScope.Ado.BeginTran();
         try
         {
-            _sqlSugarScope.StorageableByObject(snapshot).ExecuteCommand();
+            var groups = snapshot.GroupBy(e => e.GetType());
+            foreach (var group in groups)
+            {
+                 _sqlSugarScope.StorageableByObject(group.ToList()).ExecuteCommand();
+            }
+
             _sqlSugarScope.Ado.CommitTran();
         }
         catch (Exception e)

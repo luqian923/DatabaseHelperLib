@@ -234,7 +234,6 @@ internal static class Program
         Console.WriteLine("  ✅ 玩家在线，pack 存在于 DynamicInstances");
 
         pack.DecRef();
-        pack.IsOffline = true;
 
         _manager.SaveDatabase();
 
@@ -261,7 +260,6 @@ internal static class Program
 
         // 2. 模拟下线：释放引用，标记离线，清理
         pack.DecRef();
-        pack.IsOffline = true;
         _manager.SaveDatabase(); // 触发清理
         Debug.Assert(!_manager.DynamicInstances.ContainsKey(uid), "下线后应移出内存");
 
@@ -274,7 +272,6 @@ internal static class Program
 
         // 清理测试数据
         newPack.DecRef();
-        newPack.IsOffline = true;
         _manager.SaveDatabase();
     }
 

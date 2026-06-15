@@ -6,7 +6,6 @@ public class LDbPlayerPack(uint id, LDbManager manager)
     private readonly List<LDbBaseTable> _tables = [];
     private readonly ReaderWriterLockSlim _lock = new();
     private int _refCount;
-    public bool IsOffline { get; set; }
 
     public void Add(LDbBaseTable table)
     {
@@ -70,5 +69,5 @@ public class LDbPlayerPack(uint id, LDbManager manager)
 
     public void IncRef() => Interlocked.Increment(ref _refCount);
     public void DecRef() => Interlocked.Decrement(ref _refCount);
-    public bool CanUnload => IsOffline && _refCount <= 0;
+    public bool CanUnload => _refCount <= 0;
 }
