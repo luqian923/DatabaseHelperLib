@@ -1,4 +1,5 @@
-﻿using SqlSugar;
+﻿using FreeSql;
+using System.Text.Json.Serialization.Metadata;
 
 namespace LQ.DatabaseHelper;
 
@@ -11,9 +12,9 @@ public static class LDatabaseHelper
     private static uint _dbId;
 
     // create manager
-    public static LDbManager CreateManager(string connString, DbType dbType = DbType.Sqlite, int autoSaveInterval = 1, uint dbId = 0)
+    public static LDbManager CreateManager(string connString, DataType dbType = DataType.Sqlite, int autoSaveInterval = 1, uint dbId = 0, IJsonTypeInfoResolver? resolver = null)
     {
-        var manager = new LDbManager(connString, dbType, autoSaveInterval, dbId);
+        var manager = new LDbManager(connString, dbType, autoSaveInterval, dbId, resolver);
 
         dbId = dbId == 0 ? ++_dbId : dbId;
         DbManagers[dbId] = manager;

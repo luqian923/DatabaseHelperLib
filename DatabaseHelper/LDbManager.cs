@@ -1,17 +1,18 @@
-﻿using SqlSugar;
+﻿using FreeSql;
 using System.Collections;
 using System.Collections.Concurrent;
-using System.Security.Cryptography;
-using Timer = System.Timers.Timer;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using System.Threading.Channels;
+using Timer = System.Threading.Timer;
 
 namespace LQ.DatabaseHelper;
 
 public class LDbManager : IDisposable
 {
-    private readonly SqlSugarScope _sqlSugarScope;
+    private readonly IFreeSql _fsql;
     public readonly ConcurrentDictionary<uint, LDbPlayerPack> CriticalInstances = [];
     public readonly ConcurrentDictionary<uint, LDbPlayerPack> DynamicInstances = [];
-    public ConcurrentBag<uint> SaveList { get; set; } = [];
     public Timer SaveTimer;
     public bool LoadCriticalData { get; set; }
     public bool LoadDynamicData { get; set; }
@@ -20,25 +21,24 @@ public class LDbManager : IDisposable
 
     private readonly List<Type> _criticalTypes;
     private readonly List<Type> _dynamicTypes;
+    private readonly Channel<uint> _saveChannel = Channel.CreateUnbounded<uint>();
 
     public event Action<double>? OnSaveDatabase;
     public event Action<string, Exception>? OnError;
 
-    public LDbManager(string connString, DbType dbType = DbType.Sqlite, int autoSaveInterval = 5, uint dbId = 1)
+    public LDbManager(string connString, DataType dbType = DataType.Sqlite, int autoSaveInterval = 5, uint dbId = 1, IJsonTypeInfoResolver? resolver = null)
     {
-        _sqlSugarScope = new SqlSugarScope(new ConnectionConfig
-        {
-            ConnectionString = connString,
-            DbType = dbType,
-            IsAutoCloseConnection = true,
-            ConfigureExternalServices = new ConfigureExternalServices
-            {
-                SerializeService = new CustomSerializeService()
-            }
-        });
+        _fsql = new FreeSqlBuilder()
+            .UseConnectionString(dbType, connString)
+            .Build();
 
         AutoSaveInterval = autoSaveInterval;
         DbId = dbId;
+
+        _fsql.UseJsonMap(new JsonSerializerOptions
+        {
+            TypeInfoResolver = resolver
+        });
 
         InitializeSqlite();
 
@@ -50,10 +50,9 @@ public class LDbManager : IDisposable
         foreach (var pType in _criticalTypes)
         {
             // load data from db
-            var dataList = _sqlSugarScope.QueryableByObject(pType).ToList();
-            if (dataList is not IEnumerable datas) continue;
+            var dataList = _fsql.Select<object>().AsType(pType).ToList();
 
-            foreach (var data in datas)
+            foreach (var data in dataList)
             {
                 if (data is not LDbBaseTable table) continue;
 
@@ -71,25 +70,17 @@ public class LDbManager : IDisposable
         // start dispatch server
         LoadCriticalData = true;
 
-        SaveTimer = new Timer(AutoSaveInterval * 60 * 1000);
-        SaveTimer.Elapsed += (_, _) =>
-        {
-            SaveDatabase();
-        };
-        SaveTimer.AutoReset = true;
-        SaveTimer.Start();
+        SaveTimer = new Timer(_ => { SaveDatabase(); }, null, AutoSaveInterval * 60 * 1000, AutoSaveInterval * 60 * 1000);
 
         LoadDynamicData = true;
     }
 
     public void InitializeSqlite()
     {
-        _sqlSugarScope.DbMaintenance.CreateDatabase();
-
         var types = LDatabaseHelper.GetRegisteredTypes(this).Select(x => x.Type).ToList();
         foreach (var type in types)
         {
-            _sqlSugarScope.CodeFirst.InitTables(type);
+            _fsql.CodeFirst.SyncStructure(type);
         }
     }
 
@@ -143,8 +134,9 @@ public class LDbManager : IDisposable
 
     private LDbBaseTable? LoadSingleTable(uint uid, Type type)
     {
-        var result = _sqlSugarScope.QueryableByObject(type)
-            .Where("Id = @uid", new { uid })
+        var result = _fsql.Queryable<object>()
+            .AsType(type)
+            .Where($"Id = {uid}")
             .Take(1)
             .ToList();
         return result is IList { Count: > 0 } list ? list[0] as LDbBaseTable : null;
@@ -163,7 +155,7 @@ public class LDbManager : IDisposable
 
     public List<T>? GetAllInstance<T>() where T : class, new()
     {
-        return _sqlSugarScope.Queryable<T>().ToList();
+        return _fsql.Queryable<T>().ToList();
     }
 
     public List<T> GetAllInstanceFromMap<T>() where T : class, new()
@@ -174,10 +166,22 @@ public class LDbManager : IDisposable
 
     public void SaveInstance<T>(T instance) where T : LDbBaseTable, new()
     {
-        _sqlSugarScope.Insertable(instance).ExecuteCommand();
+        _fsql.Insert(instance).ExecuteAffrows();
 
         // add to pack
-        GetOrCreatePack(instance.Id, _criticalTypes.Contains(instance.GetType())).Add(instance);
+        var pack = GetOrCreatePack(instance.Id, _criticalTypes.Contains(instance.GetType()));
+        pack.Add(instance);
+
+        pack.DecRef();
+    }
+    
+    public void RequestSave(uint uid) => _saveChannel.Writer.TryWrite(uid);
+    private List<uint> DrainSaveQueue()
+    {
+        var set = new HashSet<uint>();
+        while (_saveChannel.Reader.TryRead(out var uid))
+            set.Add(uid);
+        return [.. set];
     }
 
     public void SaveDatabase() // per 5 min
@@ -185,8 +189,7 @@ public class LDbManager : IDisposable
         try
         {
             var prev = DateTime.Now;
-            var toSaveUids = SaveList.ToHashSet();
-            SaveList.Clear();
+            var toSaveUids = DrainSaveQueue();
             foreach (var uid in toSaveUids)
             {
                 try
@@ -205,7 +208,7 @@ public class LDbManager : IDisposable
                 {
                     // trigger event
                     OnError?.Invoke("An error occurred when saving database", e);
-                    SaveList.Add(uid);
+                    RequestSave(uid);
                 }
             }
 
@@ -232,20 +235,22 @@ public class LDbManager : IDisposable
         var snapshot = pack.GetSnapshot();
         if (snapshot.Count == 0) return;
 
-        _sqlSugarScope.Ado.BeginTran();
+        using var uow = _fsql.CreateUnitOfWork();
         try
         {
             var groups = snapshot.GroupBy(e => e.GetType());
             foreach (var group in groups)
             {
-                 _sqlSugarScope.StorageableByObject(group.ToList()).ExecuteCommand();
+                 uow.Orm.InsertOrUpdate<object>()
+                     .AsType(group.Key)
+                     .SetSource([.. group])
+                     .ExecuteAffrows();
             }
 
-            _sqlSugarScope.Ado.CommitTran();
+            uow.Commit();
         }
         catch (Exception e)
         {
-            _sqlSugarScope.Ado.RollbackTran();
             OnError?.Invoke("An error occurred when saving database", e);
             throw;
         }
@@ -267,7 +272,7 @@ public class LDbManager : IDisposable
 
         LDatabaseHelper.DbManagers.Remove(DbId);
 
-        _sqlSugarScope.Dispose();
+        _fsql.Dispose();
         SaveTimer.Dispose();
     }
 }

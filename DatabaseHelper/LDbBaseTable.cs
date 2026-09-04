@@ -1,9 +1,9 @@
-﻿using SqlSugar;
+﻿using FreeSql.DataAnnotations;
 
 namespace LQ.DatabaseHelper;
 
 public class LDbBaseTable
 {
-    [SugarColumn(IsPrimaryKey = true)]
+    [Column(IsPrimary = true)]
     public uint Id { get; set; }
 }

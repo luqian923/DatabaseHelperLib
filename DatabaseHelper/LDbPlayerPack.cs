@@ -50,6 +50,7 @@ public class LDbPlayerPack(uint id, LDbManager manager)
             Add(loaded);
             return loaded;
         }
+
         return null;
     }
 

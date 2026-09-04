@@ -1,9 +1,9 @@
-﻿using SqlSugar;
+﻿using FreeSql.DataAnnotations;
 
 namespace LQ.DatabaseHelper.TestProgram;
 
 [LDbEntity(false, 1)]
-[SugarTable("player_data")]
+[Table(Name = "player_data")]
 public class PlayerTable : LDbBaseTable
 {
     public string Name { get; set; } = "";

@@ -1,6 +1,6 @@
 ﻿using LQ.DatabaseHelper;
-using SqlSugar;
 using System.Diagnostics;
+using FreeSql;
 
 namespace LQ.DatabaseHelper.TestProgram;
 
@@ -19,7 +19,7 @@ internal static class Program
         if (File.Exists(_dbPath)) File.Delete(_dbPath);
 
         var connString = $"DataSource={_dbPath};Cache=Shared;";
-        _manager = new LDbManager(connString, DbType.Sqlite, autoSaveInterval: 1, dbId: 1);
+        _manager = new LDbManager(connString, DataType.Sqlite, autoSaveInterval: 1, dbId: 1, DbJsonContext.Default);
 
         // 订阅事件（可选）
         _manager.OnSaveDatabase += elapsed => Console.WriteLine($"[保存完成] 耗时 {elapsed:F2} 秒");
@@ -74,7 +74,7 @@ internal static class Program
 
         // 修改数据并保存
         retrievedAcc.Name = "CritUser_Modified";
-        _manager.SaveList.Add(uid);
+        _manager.RequestSave(uid);
         _manager.SaveDatabase();   // 触发保存（SaveList 会清空）
 
         // 验证数据库
@@ -97,7 +97,7 @@ internal static class Program
             player.Level = 10;
 
             // 加入保存列表并保存
-            _manager.SaveList.Add(uid);
+            _manager.RequestSave(uid);
             _manager.SaveDatabase();
 
             // 验证数据库
@@ -126,9 +126,9 @@ internal static class Program
         player.Level = 1;
 
         // 重复添加同一 uid
-        _manager.SaveList.Add(uid);
-        _manager.SaveList.Add(uid);
-        _manager.SaveList.Add(uid);
+        _manager.RequestSave(uid);
+        _manager.RequestSave(uid);
+        _manager.RequestSave(uid);
 
         // 保存（SaveDatabase 内部使用 Distinct 去重）
         _manager.SaveDatabase();
@@ -151,7 +151,7 @@ internal static class Program
         var pack = _manager.GetOrCreatePack(uid, critical: false);
         var player = pack.GetOrCreateTable<PlayerTable>();
         player.Name = "RetryTest";
-        _manager.SaveList.Add(uid);
+        _manager.RequestSave(uid);
         _manager.SaveDatabase(); // 正常保存
         Console.WriteLine("  ✅ 正常保存完成，重试逻辑未触发（如需测试，请模拟异常）");
     }
@@ -173,7 +173,7 @@ internal static class Program
                 {
                     // 每个线程使用不同的 uid 段，避免冲突（但也有可能重叠，但没关系）
                     uint uid = (uint)(tid * 10000 + j);
-                    _manager.SaveList.Add(uid);
+                    _manager.RequestSave(uid);
                     // 偶尔触发保存
                     if (random.Next(100) < 10)
                         _manager.SaveDatabase();
@@ -227,7 +227,7 @@ internal static class Program
         var player = pack.GetOrCreateTable<PlayerTable>();
         player.Name = "OfflineUser";
         player.Level = 20;
-        _manager.SaveList.Add(uid);
+        _manager.RequestSave(uid);
         _manager.SaveDatabase();
 
         Debug.Assert(_manager.DynamicInstances.ContainsKey(uid));
@@ -255,7 +255,7 @@ internal static class Program
         var player = pack.GetOrCreateTable<PlayerTable>();
         player.Name = "ReLoginUser";
         player.Level = 42;
-        _manager.SaveList.Add(uid);
+        _manager.RequestSave(uid);
         _manager.SaveDatabase();
 
         // 2. 模拟下线：释放引用，标记离线，清理

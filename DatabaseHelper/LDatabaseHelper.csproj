@@ -6,10 +6,15 @@
     <Nullable>enable</Nullable>
     <RootNamespace>LQ.DatabaseHelper</RootNamespace>
     <AssemblyName>LDatabaseHelper</AssemblyName>
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SqlSugarCore" Version="5.1.4.215-preview12" />
+    <PackageReference Include="FreeSql" Version="3.5.311" />
+    <PackageReference Include="FreeSql.DbContext" Version="3.5.311" />
+    <PackageReference Include="FreeSql.Extensions.JsonMap.STJ" Version="3.5.305" />
+    <PackageReference Include="FreeSql.Provider.Sqlite" Version="3.5.311" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
 
   <ItemGroup>
