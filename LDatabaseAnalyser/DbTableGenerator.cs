@@ -52,6 +52,8 @@ public class DbTableGenerator : IIncrementalGenerator
 
     private void Execute(SourceProductionContext context, System.Collections.Immutable.ImmutableArray<(string Name, bool IsCritical, uint AllowDbId)?> entities)
     {
+        if (entities.Length == 0) return;
+
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
